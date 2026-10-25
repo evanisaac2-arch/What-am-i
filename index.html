@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cops &amp; Robbers</title>
+<style>
+  :root {
+    --bg: #111418; --card: #1c2128; --text: #e8ecf1; --muted: #8b949e; --accent: #f5b942;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f4f6f8; --card: #ffffff; --text: #1b1f24; --muted: #59636e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 480px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.6rem; text-align: center; }
+  h2 { font-size: 1.1rem; margin: 0 0 8px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .card { background: var(--card); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  input, textarea, button { font: inherit; border-radius: 8px; border: 1px solid var(--muted); padding: 10px; width: 100%; background: var(--bg); color: var(--text); }
+  button { background: var(--accent); color: #111; border: none; font-weight: 600; cursor: pointer; }
+  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--muted); }
+  button.tag-chip { width: auto; padding: 6px 10px; color: #fff; font-size: 0.85rem; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+  .row .name { flex: 1; font-weight: 500; overflow-wrap: anywhere; }
+  .row button, .row input { width: auto; }
+  .role-btn { min-width: 110px; color: #fff; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; }
+  .chip .remove { padding: 6px 8px; background: rgba(0, 0, 0, 0.25); color: #fff; }
+  .result { text-align: center; padding: 32px 16px; border-radius: 12px; color: #fff; font-size: 2.2rem; font-weight: 800; margin-top: 12px; overflow-wrap: anywhere; }
+  .muted { color: var(--muted); font-size: 0.9rem; }
+  .hidden { display: none; }
+  .small { width: 90px; }
+  textarea.code { font-family: monospace; font-size: 0.75rem; word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Cops &amp; Robbers</h1>
+
+  <div class="tabs" id="tabs">
+    <button id="tabGm">Game Master</button>
+    <button id="tabPlayer" class="secondary">Player</button>
+  </div>
+
+  <!-- Game master -->
+  <section id="gmView">
+    <div class="card">
+      <h2>Game title</h2>
+      <input id="gameTitle" value="Cops &amp; Robbers" maxlength="40" autocomplete="off">
+    </div>
+
+    <div class="card">
+      <h2>1. Enter players</h2>
+      <textarea id="names" rows="6" placeholder="One name per line"></textarea>
+      <button id="loadNames" style="margin-top: 8px">Next</button>
+    </div>
+
+    <div id="assignCard" class="card hidden">
+      <h2>2. Set up tags</h2>
+      <p class="muted">Tags are the roles players can have, such as Cop, Robber, or Detective. Tap a tag to remove it.</p>
+      <div id="tagList" class="chips"></div>
+      <div class="row">
+        <input id="newTag" placeholder="New tag, e.g. Detective" maxlength="24" autocomplete="off">
+        <button id="addTag" class="secondary">Add</button>
+      </div>
+
+      <h2 style="margin-top: 16px">3. Assign roles</h2>
+      <p class="muted">Tap a name to cycle through the tags, or randomize.</p>
+      <div class="row">
+        <input id="firstCount" type="number" min="1" value="1" class="small" aria-label="Number of players for the first tag">
+        <button id="randomize" class="secondary">Randomize</button>
+      </div>
+      <div id="roster"></div>
+      <button id="makeCode" style="margin-top: 8px">Create game code</button>
+    </div>
+
+    <div id="codeCard" class="card hidden">
+      <h2>4. Share the link</h2>
+      <p class="muted">Send this link to each player. It opens only the name screen for their role, not the Game Master setup.</p>
+      <textarea id="codeOut" class="code" rows="4" readonly></textarea>
+      <button id="copyCode" class="secondary" style="margin-top: 8px">Copy link</button>
+    </div>
+  </section>
+
+  <!-- Player -->
+  <section id="playerView" class="hidden">
+    <div class="card">
+      <div id="joinCodeBox">
+        <h2>Game code</h2>
+        <textarea id="joinCode" class="code" rows="3" placeholder="Paste the code from the game master"></textarea>
+      </div>
+      <h2 style="margin-top: 12px">Your name</h2>
+      <input id="playerName" placeholder="Type your name exactly as the game master entered it" autocomplete="off">
+      <button id="checkRole" style="margin-top: 8px">Show my role</button>
+      <div id="roleResult"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+  const $ = id => document.getElementById(id);
+
+  // The roster is shared as a base64-encoded JSON string, so no server is needed.
+  const encode = text => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  const decode = code => new TextDecoder().decode(Uint8Array.from(atob(code.trim()), c => c.charCodeAt(0)));
+
+  const COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#db2777', '#65a30d'];
+  const MAX_TAGS = 8;
+
+  let tags = [
+    { label: 'Cop', color: COLORS[0] },
+    { label: 'Robber', color: COLORS[1] },
+  ];
+  let roster = []; // [{ name, tag }] where tag is a label from `tags`
+
+  const tagFor = label => tags.find(t => t.label === label);
+
+  // ----- Title -----
+  const DEFAULT_TITLE = 'Cops & Robbers';
+  function setTitle(title) {
+    const text = title || DEFAULT_TITLE;
+    $('title').textContent = text;
+    document.title = text;
+  }
+  $('gameTitle').oninput = () => setTitle($('gameTitle').value.trim());
+
+  // ----- Tabs -----
+  function showTab(which) {
+    const gm = which === 'gm';
+    $('gmView').classList.toggle('hidden', !gm);
+    $('playerView').classList.toggle('hidden', gm);
+    $('tabGm').classList.toggle('secondary', !gm);
+    $('tabPlayer').classList.toggle('secondary', gm);
+  }
+  $('tabGm').onclick = () => showTab('gm');
+  $('tabPlayer').onclick = () => showTab('player');
+
+  // ----- Game master: tags -----
+  function renderTags() {
+    $('tagList').innerHTML = '';
+    tags.forEach(tag => {
+      const chip = document.createElement('button');
+      chip.className = 'tag-chip chip';
+      chip.style.background = tag.color;
+      chip.textContent = tag.label + '  ×';
+      chip.title = 'Remove this tag';
+      chip.onclick = () => removeTag(tag.label);
+      $('tagList').append(chip);
+    });
+    $('firstCount').setAttribute('aria-label', `Number of ${tags[0].label} players`);
+    $('addTag').disabled = tags.length >= MAX_TAGS;
+  }
+
+  function addTag() {
+    const label = $('newTag').value.trim();
+    if (!label) return;
+    if (tags.length >= MAX_TAGS) return alert(`You can have up to ${MAX_TAGS} tags.`);
+    if (tagFor(label) || tags.some(t => t.label.toLowerCase() === label.toLowerCase())) {
+      return alert('That tag already exists.');
+    }
+    tags.push({ label, color: COLORS[tags.length % COLORS.length] });
+    $('newTag').value = '';
+    renderTags();
+    renderRoster();
+  }
+
+  function removeTag(label) {
+    if (tags.length <= 1) return alert('You need at least one tag.');
+    tags = tags.filter(t => t.label !== label);
+    // Players who had the removed tag fall back to the first tag.
+    roster.forEach(p => { if (p.tag === label) p.tag = tags[0].label; });
+    renderTags();
+    renderRoster();
+  }
+
+  $('addTag').onclick = addTag;
+  $('newTag').onkeydown = e => { if (e.key === 'Enter') addTag(); };
+
+  // ----- Game master: roster -----
+  function renderRoster() {
+    $('roster').innerHTML = '';
+    roster.forEach(player => {
+      const tag = tagFor(player.tag);
+      const row = document.createElement('div');
+      row.className = 'row';
+
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = player.name;
+
+      const btn = document.createElement('button');
+      btn.className = 'role-btn';
+      btn.style.background = tag.color;
+      btn.textContent = tag.label;
+      btn.onclick = () => {
+        const i = tags.indexOf(tag);
+        player.tag = tags[(i + 1) % tags.length].label;
+        renderRoster();
+      };
+
+      row.append(name, btn);
+      $('roster').append(row);
+    });
+  }
+
+  $('loadNames').onclick = () => {
+    const names = [...new Set($('names').value.split('\n').map(n => n.trim()).filter(Boolean))];
+    if (names.length < 2) return alert('Enter at least two names.');
+    roster = names.map(name => ({ name, tag: tags[0].label }));
+    $('firstCount').max = names.length;
+    $('assignCard').classList.remove('hidden');
+    $('codeCard').classList.add('hidden');
+    renderTags();
+    renderRoster();
+  };
+
+  // First tag gets the chosen number of players; the rest are split evenly across the other tags.
+  $('randomize').onclick = () => {
+    if (tags.length < 2) return alert('Add at least two tags to randomize.');
+    const firstCount = Number($('firstCount').value);
+    if (!(firstCount >= 1 && firstCount <= roster.length)) {
+      return alert(`Enter a number between 1 and ${roster.length}.`);
+    }
+    // Fisher-Yates shuffle of the indexes.
+    const order = roster.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    const others = tags.slice(1);
+    order.forEach((playerIndex, n) => {
+      roster[playerIndex].tag = n < firstCount
+        ? tags[0].label
+        : others[(n - firstCount) % others.length].label;
+    });
+    renderRoster();
+  };
+
+  $('makeCode').onclick = () => {
+    const payload = {
+      title: $('gameTitle').value.trim() || DEFAULT_TITLE,
+      players: roster.map(p => {
+        const tag = tagFor(p.tag);
+        return [p.name, tag.label, tag.color];
+      }),
+    };
+    const base = location.href.split('#')[0];
+    $('codeOut').value = base + '#join=' + encodeURIComponent(encode(JSON.stringify(payload)));
+    $('codeCard').classList.remove('hidden');
+  };
+
+  $('copyCode').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText($('codeOut').value);
+      $('copyCode').textContent = 'Copied!';
+    } catch {
+      $('codeOut').select();
+    }
+  };
+
+  // ----- Player -----
+  function showResult(text, color) {
+    const el = $('roleResult');
+    el.className = color ? 'result' : 'muted';
+    el.style.background = color || '';
+    el.textContent = text;
+  }
+
+  $('checkRole').onclick = () => {
+    let game, players;
+    try {
+      game = JSON.parse(decode($('joinCode').value));
+      players = game.players.map(([name, label, color]) => ({ name, label, color }));
+    } catch {
+      return showResult('That game code is not valid.');
+    }
+    setTitle(game.title);
+
+    const wanted = $('playerName').value.trim().toLowerCase();
+    if (!wanted) return showResult('Type your name first.');
+
+    const me = players.find(p => p.name.toLowerCase() === wanted);
+    if (!me) return showResult('That name is not in this game. Check the spelling.');
+
+    showResult(me.label.toUpperCase(), me.color);
+  };
+
+  renderTags();
+
+  if (location.hash.startsWith('#join=')) {
+    // A player's link: show only the name screen, with no Game Master tabs or setup.
+    const code = decodeURIComponent(location.hash.slice('#join='.length));
+    try { setTitle(JSON.parse(decode(code)).title); } catch { /* checked again on submit */ }
+    $('tabs').classList.add('hidden');
+    $('gmView').classList.add('hidden');
+    $('joinCodeBox').classList.add('hidden');
+    $('joinCode').value = code;
+    $('playerView').classList.remove('hidden');
+  } else {
+    showTab('gm');
+  }
+</script>
+</body>
+</html>
