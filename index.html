@@ -33,6 +33,7 @@
   .muted { color: var(--muted); font-size: 0.9rem; }
   .hidden { display: none; }
   .small { width: 90px; }
+  .swatch { width: 38px; height: 38px; padding: 2px; border-radius: 8px; cursor: pointer; }
   textarea.code { font-family: monospace; font-size: 0.75rem; word-break: break-all; }
 </style>
 </head>
@@ -60,7 +61,7 @@
 
     <div id="assignCard" class="card hidden">
       <h2>2. Set up tags</h2>
-      <p class="muted">Tags are the roles players can have, such as Cop, Robber, or Detective. Tap a tag to remove it.</p>
+      <p class="muted">Tags are the roles players can have, such as Cop, Robber, or Detective. Tap the color square to change a color, or the tag to remove it.</p>
       <div id="tagList" class="chips"></div>
       <div class="row">
         <input id="newTag" placeholder="New tag, e.g. Detective" maxlength="24" autocomplete="off">
@@ -142,13 +143,29 @@
   function renderTags() {
     $('tagList').innerHTML = '';
     tags.forEach(tag => {
+      const picker = document.createElement('input');
+      picker.type = 'color';
+      picker.className = 'swatch';
+      picker.value = tag.color;
+      picker.title = `Pick a color for ${tag.label}`;
+
       const chip = document.createElement('button');
       chip.className = 'tag-chip chip';
       chip.style.background = tag.color;
       chip.textContent = tag.label + '  ×';
       chip.title = 'Remove this tag';
       chip.onclick = () => removeTag(tag.label);
-      $('tagList').append(chip);
+
+      picker.oninput = () => {
+        tag.color = picker.value;
+        chip.style.background = tag.color;
+        renderRoster();
+      };
+
+      const wrap = document.createElement('div');
+      wrap.className = 'chip';
+      wrap.append(picker, chip);
+      $('tagList').append(wrap);
     });
     $('firstCount').setAttribute('aria-label', `Number of ${tags[0].label} players`);
     $('addTag').disabled = tags.length >= MAX_TAGS;
