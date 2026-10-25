@@ -18,13 +18,13 @@
   h2 { font-size: 1.1rem; margin: 0 0 8px; }
   .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
   .card { background: var(--card); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-  input, textarea, button { font: inherit; border-radius: 8px; border: 1px solid var(--muted); padding: 10px; width: 100%; background: var(--bg); color: var(--text); }
+  input, textarea, button, select { font: inherit; border-radius: 8px; border: 1px solid var(--muted); padding: 10px; width: 100%; background: var(--bg); color: var(--text); }
   button { background: var(--accent); color: #111; border: none; font-weight: 600; cursor: pointer; }
   button.secondary { background: transparent; color: var(--text); border: 1px solid var(--muted); }
   button.tag-chip { width: auto; padding: 6px 10px; color: #fff; font-size: 0.85rem; }
   .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
   .row .name { flex: 1; font-weight: 500; overflow-wrap: anywhere; }
-  .row button, .row input { width: auto; }
+  .row button, .row input, .row select { width: auto; }
   .role-btn { min-width: 110px; color: #fff; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   .chip { display: inline-flex; align-items: center; gap: 4px; }
@@ -74,6 +74,10 @@
         <input id="firstCount" type="number" min="1" value="1" class="small" aria-label="Number of players for the first tag">
         <button id="randomize" class="secondary">Randomize</button>
       </div>
+      <div class="row">
+        <span class="name">Everyone not on the list is</span>
+        <select id="catchAll" aria-label="Role for names not on the list"></select>
+      </div>
       <div id="roster"></div>
       <button id="makeCode" style="margin-top: 8px">Create game code</button>
     </div>
@@ -118,6 +122,10 @@
   let roster = []; // [{ name, tag }] where tag is a label from `tags`
 
   const tagFor = label => tags.find(t => t.label === label);
+
+  // Role for any name not on the list. Defaults to the last tag if the chosen one is removed.
+  let catchAllLabel = null;
+  const catchAllTag = () => tagFor(catchAllLabel) || tags[tags.length - 1];
 
   // ----- Title -----
   const DEFAULT_TITLE = 'Cops & Robbers';
@@ -169,7 +177,14 @@
     });
     $('firstCount').setAttribute('aria-label', `Number of ${tags[0].label} players`);
     $('addTag').disabled = tags.length >= MAX_TAGS;
+
+    const catchAll = $('catchAll');
+    catchAll.innerHTML = '';
+    tags.forEach(tag => catchAll.append(new Option(tag.label, tag.label)));
+    catchAll.value = catchAllTag().label;
   }
+
+  $('catchAll').onchange = () => { catchAllLabel = $('catchAll').value; };
 
   function addTag() {
     const label = $('newTag').value.trim();
@@ -259,6 +274,7 @@
   $('makeCode').onclick = () => {
     const payload = {
       title: $('gameTitle').value.trim() || DEFAULT_TITLE,
+      others: [catchAllTag().label, catchAllTag().color],
       players: roster.map(p => {
         const tag = tagFor(p.tag);
         return [p.name, tag.label, tag.color];
@@ -300,7 +316,11 @@
     if (!wanted) return showResult('Type your name first.');
 
     const me = players.find(p => p.name.toLowerCase() === wanted);
-    if (!me) return showResult('That name is not in this game. Check the spelling.');
+    if (!me) {
+      if (!game.others) return showResult('That name is not in this game. Check the spelling.');
+      const [label, color] = game.others;
+      return showResult(label.toUpperCase(), color);
+    }
 
     showResult(me.label.toUpperCase(), me.color);
   };
